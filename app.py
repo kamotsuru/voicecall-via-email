@@ -1,14 +1,17 @@
 import logging
 import os
-import ConfigParser
+import configparser
+from urllib.parse import urlparse, parse_qs
 
 from flask import Flask
 from flask import request
 from flask import url_for
-from twilio.rest import TwilioRestClient
+from twilio.rest import Client
 import phonenumbers as ph
 import sendgrid
 import simplejson
+
+import vonage
 
 from konfig import Konfig
 
@@ -20,7 +23,7 @@ def warn(message):
 address_book = {}
 address_book_file = 'address-book.cfg'
 try:
-    user_list = ConfigParser.ConfigParser()
+    user_list = configparser.ConfigParser()
     user_list.read(address_book_file)
     for user in user_list.items('users'):
         address_book[user[0]] = user[1]
@@ -30,10 +33,13 @@ except:
 
 app = Flask(__name__)
 konf = Konfig()
-twilio_api = TwilioRestClient()
+twilio_api = Client(konf.twilio_account_sid, konf.twilio_auth_token)
 sendgrid_api = sendgrid.SendGridClient(konf.sendgrid_username,
                                        konf.sendgrid_password)
 
+vonage_client = vonage.Client(key=konf.vonage_api_key,
+                              secret=konf.vonage_api_secret)
+vonage_api = vonage.Sms(vonage_client)
 
 class InvalidInput(Exception):
     def __init__(self, invalid_input):
@@ -89,7 +95,7 @@ class Lookup:
         try:
             number = ph.parse(potential_number, 'US')
             phone_number = ph.format_number(number, ph.PhoneNumberFormat.E164)
-        except Exception, e:
+        except Exception as e:
             raise InvalidPhoneNumber(str(e))
 
         if phone_number in self.by_phone_number:
@@ -104,7 +110,7 @@ def phone_to_email(potential_number):
     try:
         number = ph.parse(potential_number, 'US')
         phone_number = ph.format_number(number, ph.PhoneNumberFormat.E164)
-    except Exception, e:
+    except Exception as e:
         raise InvalidPhoneNumber(str(e))
     phone_number = phone_number.replace('+', '')
     return("{}@{}".format(phone_number, konf.email_domain))
@@ -125,9 +131,8 @@ def email_to_phone(from_email):
 
 def check_for_missing_settings():
     rv = []
-    for required in ['EMAIL_DOMAIN',
-                     'SENDGRID_USERNAME', 'SENDGRID_PASSWORD',
-                     'TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN']:
+    for required in ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN',
+                     'VONAGE_API_KEY', 'VONAGE_API_SECRET']:
         value = getattr(konf, required)
         if not value:
             rv.append(required)
@@ -151,7 +156,7 @@ def main():
         error_message = template.format(missing)
         return warn(error_message), 500
     elif duplicates_in_address_book():
-        print str(address_book)
+        print(str(address_book))
         error_message = ("Only one email address can be configured per "
                          "phone number. Please update the 'address-book.cfg' "
                          "file so that each phone number "
@@ -182,7 +187,7 @@ def handle_sms():
             'from_email': phone_to_email(request.form['From']),
             'to': lookup.email_for_phone(request.form['To'])
         }
-    except InvalidInput, e:
+    except InvalidInput as e:
         return warn(str(e)), 400
 
     message = sendgrid.Mail(**email)
@@ -202,27 +207,41 @@ def handle_email():
     try:
         envelope = simplejson.loads(request.form['envelope'])
         lines = request.form['text'].splitlines(True)
+        if envelope['to'][0] != request.form['to']:
+            email_from = 'xxxx@gmail.com'  # Where from/to is different between header and envelope, we use a specific address
+        else:
+            email_from = envelope['from']
         sms = {
-            'to': email_to_phone(request.form['to']),
-            'from_': lookup.phone_for_email(envelope['from']),
-            'body': lines[0]
+            'from': lookup.phone_for_email(email_from).replace('+',''),       
+            'to': email_to_phone(envelope['to'][0]).replace('+',''),
+            'text': lines[0],
+            'type': 'unicode',                        
         }
-    except InvalidInput, e:
+    except InvalidInput as e:
         return warn(str(e))
 
     try:
-        rv = twilio_api.messages.create(**sms)
-        return rv.sid
+        responseData = vonage_api.send_message({
+            'from': lookup.phone_for_email(email_from).replace('+',''),
+            'to': email_to_phone(envelope['to'][0]).replace('+',''),
+            'text': lines[0],
+            'type': 'unicode',            
+        })
+        if responseData["messages"][0]["status"] == "0":
+            print("Vonage message sent successfully.")
+        else:
+            warn("Vonage message failed with error: "+str(responseData['messages'][0]['error-text']))
+        return responseData["messages"][0]["message-id"]
     except Exception as e:
-        print "oh no"
-        print str(e)
-        error_message = "Error sending message to Twilio"
-        return warn(error_message), 400
+        print("oh no")
+        print(str(e))
+        error_message = "Error sending message to Vonage"
+        return warn(error_message+str(responseData['messages'][0]['error-text'])), 400
 
 if __name__ == "__main__":
     # Bind to PORT if defined, otherwise default to 5000.
     port = int(os.environ.get('PORT', 5000))
     if port == 5000:
         app.debug = True
-        print "in debug mode"
+        print("in debug mode")
     app.run(host='0.0.0.0', port=port)
