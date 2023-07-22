@@ -47,7 +47,7 @@ My cell phone which career is au by KDDI, Japan, received an SMS as below. The f
 </div>
 
 ## 3.  Migration of SMS sending from twilio
-The python [code](https://github.com/jpf/sms-via-email) referred by [Send And Receive SMS Messages via Email with Twilio and SendGrid](https://www.twilio.com/blog/send-and-receive-sms-messages-via-email-with-twilio-and-sendgrid-html) was modified as [app.py](https://github.com/kamotsuru/twilio2vonage/blob/main/app.py). The whole procedure to send SMS triggered by receiving email with SendGrid, heroku and your own DNS domain is described in the above site, Send And Receive SMS Messages via Email with Twilio and SendGrid.
+The python [code](https://github.com/jpf/sms-via-email) referred by [Send And Receive SMS Messages via Email with Twilio and SendGrid](https://www.twilio.com/blog/send-and-receive-sms-messages-via-email-with-twilio-and-sendgrid-html) was modified as [app.py](https://raw.githubusercontent.com/kamotsuru/voicecall-via-email/59f99110fb31b42a78c61dc8bd1918e224b62ff8/app.py). The whole procedure to send SMS triggered by receiving email with SendGrid, heroku and your own DNS domain is described in the above site, Send And Receive SMS Messages via Email with Twilio and SendGrid.
 
 I deployed this code on render.com and uses AWS Route 53 as DNS.
 
