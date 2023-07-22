@@ -33,13 +33,15 @@ except:
 
 app = Flask(__name__)
 konf = Konfig()
-twilio_api = Client(konf.twilio_account_sid, konf.twilio_auth_token)
 sendgrid_api = sendgrid.SendGridClient(konf.sendgrid_username,
                                        konf.sendgrid_password)
 
 vonage_client = vonage.Client(key=konf.vonage_api_key,
-                              secret=konf.vonage_api_secret)
+                              secret=konf.vonage_api_secret,
+                              application_id=konf.vonage_application_id,
+                              private_key="/etc/secrets/VONAGE_APPLICATION_PRIVATE_KEY")
 vonage_api = vonage.Sms(vonage_client)
+vonage_voice = vonage.Voice(vonage_client)
 
 class InvalidInput(Exception):
     def __init__(self, invalid_input):
@@ -131,8 +133,7 @@ def email_to_phone(from_email):
 
 def check_for_missing_settings():
     rv = []
-    for required in ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN',
-                     'VONAGE_API_KEY', 'VONAGE_API_SECRET']:
+    for required in ['VONAGE_API_KEY', 'VONAGE_API_SECRET']:        
         value = getattr(konf, required)
         if not value:
             rv.append(required)
@@ -207,6 +208,14 @@ def handle_email():
     try:
         envelope = simplejson.loads(request.form['envelope'])
         lines = request.form['text'].splitlines(True)
+        # if charset is iso-2022-jp, str is put back to bytes and decode as it
+        charsets = simplejson.loads(request.form['charsets'])
+        if charsets['text'].lower() == 'iso-2022-jp':
+            lines[0] = bytes(lines[0], 'utf-8').decode('iso-2022-jp').replace("\r\n", " ")
+            line_num = 1
+            while line_num < len(lines):
+                lines[0] += bytes(lines[line_num], 'utf-8').decode('iso-2022-jp').replace("\r\n", " ")
+                line_num += 1
         if envelope['to'][0] != request.form['to']:
             email_from = 'xxxx@gmail.com'  # Where from/to is different between header and envelope, we use a specific address
         else:
@@ -215,28 +224,29 @@ def handle_email():
             'from': lookup.phone_for_email(email_from).replace('+',''),       
             'to': email_to_phone(envelope['to'][0]).replace('+',''),
             'text': lines[0],
-            'type': 'unicode',                        
         }
     except InvalidInput as e:
         return warn(str(e))
 
     try:
-        responseData = vonage_api.send_message({
-            'from': lookup.phone_for_email(email_from).replace('+',''),
-            'to': email_to_phone(envelope['to'][0]).replace('+',''),
-            'text': lines[0],
-            'type': 'unicode',            
+        responseData = vonage_voice.create_call({            
+            'from': {'type': 'phone', 'number': lookup.phone_for_email(email_from).replace('+','')},
+            'to': [{'type': 'phone', 'number': email_to_phone(envelope['to'][0]).replace('+','')}],
+            'ncco': [
+                {
+                    "action": "talk",
+                    "text": lines[0].split('に')[1],  # cut text to talk before に
+                    "language": "ja-JP",
+                    "style": 2
+                }
+            ]
         })
-        if responseData["messages"][0]["status"] == "0":
-            print("Vonage message sent successfully.")
-        else:
-            warn("Vonage message failed with error: "+str(responseData['messages'][0]['error-text']))
-        return responseData["messages"][0]["message-id"]
+        return responseData["status"]
     except Exception as e:
         print("oh no")
         print(str(e))
         error_message = "Error sending message to Vonage"
-        return warn(error_message+str(responseData['messages'][0]['error-text'])), 400
+        return warn(str(e)), 400
 
 if __name__ == "__main__":
     # Bind to PORT if defined, otherwise default to 5000.
