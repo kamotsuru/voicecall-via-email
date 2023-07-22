@@ -86,7 +86,7 @@ These are reflected at "Applications".
 We have to link these to an already purchased phone number. The "Unlink" button was "Link" before pushed and linked. 
 ![Screen Shot 2022-12-09 at 20.58.16.png](https://qiita-image-store.s3.ap-northeast-1.amazonaws.com/0/117100/cb42b882-900f-b24c-98b9-0478678d7451.png)
 ### 4.2. Code
-I modified the above code to [app.py](https://github.com/kamotsuru/twilio2vonage/blob/main/voiceapp.py). The following just shows some main parts. The voice can be chosen  reffering [Voice API > Text to Speech](https://developer.vonage.com/voice/voice-api/guides/text-to-speech)
+I modified the above code sending SMS. The following just shows some main parts. The voice can be chosen  reffering [Voice API > Text to Speech](https://developer.vonage.com/voice/voice-api/guides/text-to-speech)
 ```
 vonage_client = vonage.Client(key=konf.vonage_api_key,
                               secret=konf.vonage_api_secret,
